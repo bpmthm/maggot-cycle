@@ -1,13 +1,14 @@
-# Binary hasil build (JANGAN DIPUSH)
+
+# --- GO (Backend) ---
 main
 main.exe
-
-# Config rahasia (Kalau nanti pake .env)
 .env
-
-# Folder sampah OS
 .DS_Store
-
-# Folder IDE
 .vscode/
-.idea/
+
+# --- NODE JS (Frontend) ---
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.npm
