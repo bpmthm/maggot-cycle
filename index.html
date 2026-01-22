@@ -1,72 +1,262 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-    <title>MaggotCycle - Upload Foto</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MaggotCycle - Secure System</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; background-color: #f0f2f5; color: #333; }
+        .container { max-width: 400px; margin: 0 auto; }
+        .box { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 30px; }
+        h3 { margin-top: 0; color: #444; }
+        
+        input { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        input:focus { border-color: #007bff; outline: none; }
+        
+        button { width: 100%; padding: 12px; cursor: pointer; border: none; border-radius: 6px; font-weight: bold; font-size: 14px; transition: 0.2s; }
+        button:hover { opacity: 0.9; }
+        
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-danger { background-color: #dc3545; color: white; margin-top: 15px; }
+        
+        .link { color: #007bff; text-decoration: none; cursor: pointer; font-size: 14px; }
+        .link:hover { text-decoration: underline; }
+        
+        .hidden { display: none; }
+        .message { margin-top: 15px; font-size: 14px; text-align: center; }
+        .error { color: #dc3545; }
+        .success { color: #28a745; }
+        
+        #hasilFoto img { width: 100%; border-radius: 8px; margin-top: 10px; border: 2px solid #28a745; }
+    </style>
 </head>
-<body style="font-family: sans-serif; padding: 50px;">
+<body>
 
-    <h1>Lapor Sampah + Bukti Foto</h1>
-    
-    <div style="border: 1px solid #ccc; padding: 20px; max-width: 400px;">
-        <input type="text" id="jenis" placeholder="Jenis Limbah" style="margin-bottom: 10px; width: 90%;"><br>
-        <input type="number" id="berat" placeholder="Berat (Kg)" style="margin-bottom: 10px; width: 90%;"><br>
-        
-        <label>Bukti Foto:</label><br>
-        <input type="file" id="foto" accept="image/*" style="margin-bottom: 20px;"><br>
-        
-        <button onclick="kirimLaporan()" style="background-color: blue; color: white; padding: 10px;">UPLOAD DATA</button>
+    <div class="container">
+        <h1>🐛 MaggotCycle</h1>
+
+        <div id="authSection" class="box">
+            <h3 id="authTitle">Login Petugas</h3>
+            
+            <input type="email" id="email" placeholder="Email (cth: admin@maggot.com)">
+            <input type="password" id="password" placeholder="Password">
+            
+            <button class="btn-primary" onclick="handleAuth()">MASUK</button>
+            
+            <div style="text-align: center; margin-top: 15px;">
+                <span id="toggleText">Belum punya akun?</span> 
+                <a class="link" onclick="toggleMode()" id="toggleBtn">Daftar di sini</a>
+            </div>
+            
+            <p id="authMsg" class="message"></p>
+        </div>
+
+        <div id="uploadSection" class="box hidden">
+            <h3>📝 Lapor Sampah</h3>
+            <p style="font-size: 13px; color: #666; margin-bottom: 20px;">
+                Login sebagai: <span id="userEmailDisplay" style="font-weight: bold; color: #000;">-</span>
+            </p>
+            
+            <label style="font-size: 12px; font-weight: bold;">Jenis Limbah:</label>
+            <input type="text" id="jenis" placeholder="cth: Sisa Sayuran">
+            
+            <label style="font-size: 12px; font-weight: bold;">Berat (Kg):</label>
+            <input type="number" id="berat" placeholder="0">
+            
+            <label style="font-size: 12px; font-weight: bold;">Bukti Foto:</label>
+            <input type="file" id="foto" accept="image/*" style="padding: 5px;">
+            
+            <button class="btn-success" onclick="uploadWaste()">📤 UPLOAD DATA</button>
+            <button class="btn-danger" onclick="doLogout()">KELUAR</button>
+
+            <p id="uploadMsg" class="message"></p>
+            <div id="hasilFoto"></div>
+        </div>
     </div>
 
-    <p id="status" style="margin-top: 20px; color: grey;">Status: Menunggu...</p>
-    
-    <div id="hasil" style="margin-top: 20px;"></div>
-
     <script>
-        async function kirimLaporan() {
-            const statusTxt = document.getElementById('status');
-            const fileInput = document.getElementById('foto');
+        // --- KONFIGURASI ---
+        const API_URL = "http://127.0.0.1:3000/api";
+        let isRegisterMode = false; // Status apakah lagi mode daftar atau login
 
-            // Validasi: Foto wajib ada
-            if (fileInput.files.length === 0) {
-                alert("Pilih foto dulu bro!");
+        // Cek sesi saat halaman dibuka
+        checkSession();
+
+        // --- FUNGSI GANTI MODE (LOGIN <-> DAFTAR) ---
+        function toggleMode() {
+            isRegisterMode = !isRegisterMode;
+            const title = document.getElementById('authTitle');
+            const btn = document.querySelector('#authSection button');
+            const toggleBtn = document.getElementById('toggleBtn');
+            const toggleText = document.getElementById('toggleText');
+            const msg = document.getElementById('authMsg');
+
+            msg.innerText = ""; // Bersihkan pesan error
+
+            if (isRegisterMode) {
+                title.innerText = "Daftar Akun Baru";
+                btn.innerText = "DAFTAR SEKARANG";
+                btn.className = "btn-success";
+                toggleText.innerText = "Sudah punya akun?";
+                toggleBtn.innerText = "Login di sini";
+            } else {
+                title.innerText = "Login Petugas";
+                btn.innerText = "MASUK";
+                btn.className = "btn-primary";
+                toggleText.innerText = "Belum punya akun?";
+                toggleBtn.innerText = "Daftar di sini";
+            }
+        }
+
+        // --- FUNGSI HANDLE TOMBOL UTAMA (Bisa jadi Login atau Register) ---
+        async function handleAuth() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const msg = document.getElementById('authMsg');
+
+            if (!email || !password) {
+                alert("⚠️ Email dan Password tidak boleh kosong!");
                 return;
             }
 
-            statusTxt.innerHTML = "Mengupload ke MinIO...";
+            msg.innerText = "Loading...";
+            msg.className = "message";
 
-            // Pake FormData buat kirim File + Text
-            const formData = new FormData();
-            formData.append("jenis", document.getElementById('jenis').value);
-            formData.append("berat", document.getElementById('berat').value);
-            formData.append("foto", fileInput.files[0]); // Ambil filenya
+            // Tentukan mau nembak endpoint mana
+            const endpoint = isRegisterMode ? "/register" : "/login";
 
             try {
-                // Perhatikan: Kita GAK PERLU set Content-Type header manual
-                // Browser bakal otomatis set jadi 'multipart/form-data'
-                const response = await fetch('http://127.0.0.1:3000/api/waste', {
+                const res = await fetch(API_URL + endpoint, {
                     method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    if (isRegisterMode) {
+                        // Kalo sukses Register
+                        alert("✅ Berhasil Mendaftar!\nSilakan login dengan akun baru.");
+                        toggleMode(); // Balikin ke mode login
+                    } else {
+                        // Kalo sukses Login
+                        localStorage.setItem('maggot_token', data.token);
+                        localStorage.setItem('maggot_email', email); // Simpan email buat display
+                        checkSession();
+                    }
+                    msg.innerText = "";
+                } else {
+                    msg.innerText = "❌ Gagal: " + (data.error || "Terjadi kesalahan");
+                    msg.className = "message error";
+                }
+            } catch (err) {
+                console.error(err);
+                msg.innerText = "❌ Gagal koneksi ke Backend (Pastikan 'go run main.go' jalan)";
+                msg.className = "message error";
+            }
+        }
+
+        // --- FUNGSI UPLOAD ---
+        async function uploadWaste() {
+            const token = localStorage.getItem('maggot_token');
+            const msg = document.getElementById('uploadMsg');
+            const fileInput = document.getElementById('foto');
+
+            if (fileInput.files.length === 0) {
+                alert("⚠️ Pilih foto bukti dulu!");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('jenis', document.getElementById('jenis').value);
+            formData.append('berat', document.getElementById('berat').value);
+            formData.append('foto', fileInput.files[0]);
+
+            msg.innerText = "Mengupload data...";
+            msg.className = "message";
+
+            try {
+                const res = await fetch(`${API_URL}/waste`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token // Kunci Sakti
+                    },
                     body: formData
                 });
 
-                const result = await response.json();
+                const data = await res.json();
 
-                if (response.ok) {
-                    statusTxt.innerHTML = "✅ SUKSES!";
-                    // Tampilin Foto yang berhasil diupload
-                    document.getElementById('hasil').innerHTML = `
-                        <h3>Data Tersimpan:</h3>
-                        <p>Jenis: ${result.data.jenis} (${result.data.berat} Kg)</p>
-                        <img src="${result.data.foto_url}" width="200" style="border: 2px solid green;">
-                        <p><small>URL: ${result.data.foto_url}</small></p>
+                if (res.ok) {
+                    msg.innerHTML = "✅ Laporan Berhasil Diterima!";
+                    msg.className = "message success";
+                    
+                    // Tampilkan preview
+                    document.getElementById('hasilFoto').innerHTML = `
+                        <div style="background: #e8f5e9; padding: 10px; border-radius: 8px; margin-top: 10px;">
+                            <strong>Data Tersimpan:</strong><br>
+                            ID: ${data.data.id} <br>
+                            Jenis: ${data.data.jenis} (${data.data.berat} Kg)<br>
+                            <img src="${data.data.foto_url}" alt="Bukti Foto">
+                        </div>
                     `;
+                    // Reset form
+                    document.getElementById('jenis').value = "";
+                    document.getElementById('berat').value = "";
+                    fileInput.value = "";
                 } else {
-                    statusTxt.innerHTML = "❌ Error: " + result.error;
+                    msg.innerText = "❌ Error: " + (data.error || "Gagal upload");
+                    msg.className = "message error";
+                    
+                    // Kalo token basi (401), tendang keluar
+                    if (res.status === 401) {
+                        alert("⏳ Sesi habis. Silakan login lagi.");
+                        doLogout();
+                    }
                 }
-            } catch (error) {
-                statusTxt.innerHTML = "❌ Gagal Konek";
-                console.error(error);
+            } catch (err) {
+                console.error(err);
+                msg.innerText = "❌ Gagal koneksi server";
+                msg.className = "message error";
             }
         }
+
+        // --- UTILS ---
+        function checkSession() {
+            const token = localStorage.getItem('maggot_token');
+            const userEmail = localStorage.getItem('maggot_email');
+            
+            if (token) {
+                // User sudah login
+                document.getElementById('authSection').classList.add('hidden');
+                document.getElementById('uploadSection').classList.remove('hidden');
+                document.getElementById('userEmailDisplay').innerText = userEmail || "User";
+            } else {
+                // User belum login
+                document.getElementById('authSection').classList.remove('hidden');
+                document.getElementById('uploadSection').classList.add('hidden');
+            }
+        }
+
+        function doLogout() {
+            if(confirm("Yakin mau keluar?")) {
+                localStorage.removeItem('maggot_token');
+                localStorage.removeItem('maggot_email');
+                
+                // Reset tampilan
+                document.getElementById('hasilFoto').innerHTML = "";
+                document.getElementById('uploadMsg').innerText = "";
+                document.getElementById('email').value = "";
+                document.getElementById('password').value = "";
+                
+                checkSession();
+            }
+        }
+        
+        console.log("Script MaggotCycle Loaded ✅");
     </script>
 </body>
 </html>
