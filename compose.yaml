@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # 1. Database (Sekarang otomatis bikin db: waste_db)
+  db:
+    image: docker.io/library/postgres:alpine
+    container_name: postgres-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: rahasia
+      POSTGRES_DB: waste_db  # <--- INI TAMBAHAN PENTING
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - maggot-net
+
+  # 2. Caching (Disimpen aja buat nanti fitur Login)
+  cache:
+    image: docker.io/library/redis:alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    networks:
+      - maggot-net
+
+  # 3. Object Storage
+  storage:
+    image: quay.io/minio/minio
+    container_name: minio-server
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - maggot-net
+
+networks:
+  maggot-net:
+    driver: bridge
+
+volumes:
+  pg_data:
+  minio_data:

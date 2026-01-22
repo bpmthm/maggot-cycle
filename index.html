@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MaggotCycle - Upload Foto</title>
+</head>
+<body style="font-family: sans-serif; padding: 50px;">
+
+    <h1>Lapor Sampah + Bukti Foto</h1>
+    
+    <div style="border: 1px solid #ccc; padding: 20px; max-width: 400px;">
+        <input type="text" id="jenis" placeholder="Jenis Limbah" style="margin-bottom: 10px; width: 90%;"><br>
+        <input type="number" id="berat" placeholder="Berat (Kg)" style="margin-bottom: 10px; width: 90%;"><br>
+        
+        <label>Bukti Foto:</label><br>
+        <input type="file" id="foto" accept="image/*" style="margin-bottom: 20px;"><br>
+        
+        <button onclick="kirimLaporan()" style="background-color: blue; color: white; padding: 10px;">UPLOAD DATA</button>
+    </div>
+
+    <p id="status" style="margin-top: 20px; color: grey;">Status: Menunggu...</p>
+    
+    <div id="hasil" style="margin-top: 20px;"></div>
+
+    <script>
+        async function kirimLaporan() {
+            const statusTxt = document.getElementById('status');
+            const fileInput = document.getElementById('foto');
+
+            // Validasi: Foto wajib ada
+            if (fileInput.files.length === 0) {
+                alert("Pilih foto dulu bro!");
+                return;
+            }
+
+            statusTxt.innerHTML = "Mengupload ke MinIO...";
+
+            // Pake FormData buat kirim File + Text
+            const formData = new FormData();
+            formData.append("jenis", document.getElementById('jenis').value);
+            formData.append("berat", document.getElementById('berat').value);
+            formData.append("foto", fileInput.files[0]); // Ambil filenya
+
+            try {
+                // Perhatikan: Kita GAK PERLU set Content-Type header manual
+                // Browser bakal otomatis set jadi 'multipart/form-data'
+                const response = await fetch('http://127.0.0.1:3000/api/waste', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    statusTxt.innerHTML = "✅ SUKSES!";
+                    // Tampilin Foto yang berhasil diupload
+                    document.getElementById('hasil').innerHTML = `
+                        <h3>Data Tersimpan:</h3>
+                        <p>Jenis: ${result.data.jenis} (${result.data.berat} Kg)</p>
+                        <img src="${result.data.foto_url}" width="200" style="border: 2px solid green;">
+                        <p><small>URL: ${result.data.foto_url}</small></p>
+                    `;
+                } else {
+                    statusTxt.innerHTML = "❌ Error: " + result.error;
+                }
+            } catch (error) {
+                statusTxt.innerHTML = "❌ Gagal Konek";
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

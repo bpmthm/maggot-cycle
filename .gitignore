@@ -1,0 +1,13 @@
+# Binary hasil build (JANGAN DIPUSH)
+main
+main.exe
+
+# Config rahasia (Kalau nanti pake .env)
+.env
+
+# Folder sampah OS
+.DS_Store
+
+# Folder IDE
+.vscode/
+.idea/
