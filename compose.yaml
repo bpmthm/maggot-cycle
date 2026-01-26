@@ -50,14 +50,14 @@ services:
       DB_HOST: db-master
       MINIO_ENDPOINT: minio-server:9000
     env_file:
-      - .env  <-- TAMBAHIN INI
+      - .env
     depends_on:
       - db-master
       - minio-server
       - maggot-net
 
   backend-2:
-    build: .                    # <--- INI JUGA SAMA
+    build: .                    
     container_name: backend-2
     environment:
       DB_HOST: db-master
