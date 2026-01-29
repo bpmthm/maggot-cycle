@@ -108,6 +108,7 @@ func main() {
 	
 	// 👇 INI DIA YANG KEMAREN ILANG! 👇
 	wasteRoutes.Put("/:id/status", UpdateWasteStatus)
+	wasteRoutes.Delete("/:id", DeleteWaste)
 
 	log.Fatal(app.Listen(":3000"))
 }
@@ -223,6 +224,23 @@ func UpdateWasteStatus(c *fiber.Ctx) error {
 		"message": "Status berhasil diupdate jadi Selesai!",
 		"data":    waste,
 	})
+}
+
+func DeleteWaste(c *fiber.Ctx) error {
+	id := c.Params("id")
+	var waste Waste
+
+	// Cek dulu datanya ada gak
+	if err := DB.First(&waste, id).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Data gak ketemu"})
+	}
+
+	// Hapus data (Soft Delete kalau pake GORM default, atau Hard Delete)
+	if err := DB.Delete(&waste).Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal menghapus data"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Data berhasil dihapus!"})
 }
 
 // --- FUNGSI KIRIM WA ---
