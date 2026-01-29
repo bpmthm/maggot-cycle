@@ -27,8 +27,6 @@ import (
 )
 
 // --- CONFIG HELPER ---
-// Fungsi ini biar kodingan lo bisa jalan di Laptop (Localhost) DAN di Docker (Container)
-// tanpa perlu ubah-ubah kodingan manual.
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
@@ -38,10 +36,9 @@ func getEnv(key, fallback string) string {
 
 // --- CONSTANTS ---
 var (
-	// Kalau jalan di Docker, dia bakal pake nama container. Kalau di laptop, pake localhost.
-	DbHost       = getEnv("DB_HOST", "localhost")
+	DbHost        = getEnv("DB_HOST", "localhost")
 	MinioEndpoint = getEnv("MINIO_ENDPOINT", "localhost:9000")
-	WaGatewayURL  = "http://wa-gateway:3000/send/message" // URL internal container WA
+	WaGatewayURL  = "http://wa-gateway:3000/send/message"
 	
 	MinioUser     = "admin"
 	MinioPass     = "password123"
@@ -68,22 +65,16 @@ type Waste struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Struct khusus buat kirim ke API WhatsApp
-type WaRequest struct {
-	Phone   string `json:"phone"`
-	Message string `json:"message"`
-}
-
 var DB *gorm.DB
 var MinioClient *minio.Client
 
 func main() {
-	// 1. KONEKSI DB (Dinamic Host)
+	// 1. KONEKSI DB
 	dsn := fmt.Sprintf("host=%s user=postgres password=rahasia dbname=waste_db port=5432 sslmode=disable TimeZone=Asia/Jakarta", DbHost)
 	var err error
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatal("❌ Database Error (Cek container db-master nyala gak?):", err)
+		log.Fatal("❌ Database Error:", err)
 	}
 	DB.AutoMigrate(&User{}, &Waste{})
 	fmt.Println("✅ Sukses konek ke Database:", DbHost)
@@ -106,13 +97,17 @@ func main() {
 
 	api := app.Group("/api")
 
-	// Routes
+	// Routes Auth
 	api.Post("/register", Register)
 	api.Post("/login", Login)
 	
+	// Routes Sampah (Butuh Login)
 	wasteRoutes := api.Group("/waste", AuthMiddleware)
 	wasteRoutes.Post("/", CreateWaste)
 	wasteRoutes.Get("/", GetWastes)
+	
+	// 👇 INI DIA YANG KEMAREN ILANG! 👇
+	wasteRoutes.Put("/:id/status", UpdateWasteStatus)
 
 	log.Fatal(app.Listen(":3000"))
 }
@@ -134,7 +129,6 @@ func Register(c *fiber.Ctx) error {
 	if result := DB.Create(&user); result.Error != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Email sudah terdaftar"})
 	}
-
 	return c.JSON(fiber.Map{"message": "Register sukses!", "data": user})
 }
 
@@ -167,7 +161,7 @@ func Login(c *fiber.Ctx) error {
 }
 
 func CreateWaste(c *fiber.Ctx) error {
-	userID := c.Locals("user_id").(float64)
+	userID := c.Locals("user_id").(float64) // JWT v5 default claim number is float64
 
 	waste := new(Waste)
 	if err := c.BodyParser(waste); err != nil {
@@ -196,18 +190,13 @@ func CreateWaste(c *fiber.Ctx) error {
 	waste.UserID = uint(userID)
 	DB.Create(&waste)
 
-	// --- INTEGRASI WHATSAPP (New!) ---
-	// Kita pake 'go func' (Goroutine) biar proses kirim WA jalan di background
-	// Jadi user gak perlu nunggu loading WA terkirim.
+	// Background WA
 	go func() {
-        pesan := fmt.Sprintf("📢 *Laporan Baru Masuk!*\n\nJenis: %s\nBerat: %.2f Kg\nOleh User ID: %d", waste.Jenis, waste.Berat, waste.UserID)
-        
-        // PARAMETER KE-3: Masukin waste.FotoURL biar dikirim gambarnya!
-        // Ganti nomornya ke nomor temen lo lagi
-        SendWhatsApp("6289648186679", pesan, waste.FotoURL) 
-    }()
+		pesan := fmt.Sprintf("📢 *Laporan Baru Masuk!*\n\nJenis: %s\nBerat: %.2f Kg\nOleh User ID: %d", waste.Jenis, waste.Berat, waste.UserID)
+		SendWhatsApp("6289648186679", pesan, waste.FotoURL) 
+	}()
 
-    return c.Status(201).JSON(fiber.Map{"message": "Laporan sukses & WA terkirim!", "data": waste})
+	return c.Status(201).JSON(fiber.Map{"message": "Laporan sukses & WA terkirim!", "data": waste})
 }
 
 func GetWastes(c *fiber.Ctx) error {
@@ -216,73 +205,76 @@ func GetWastes(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"data": wastes})
 }
 
-// --- FUNGSI KIRIM WA (ULTIMATE DEBUG VERSION) ---
-func SendWhatsApp(nomorTujuan string, pesan string, fotoURL string) {
-    if !strings.HasSuffix(nomorTujuan, "@s.whatsapp.net") {
-        nomorTujuan = nomorTujuan + "@s.whatsapp.net"
-    }
+// 👇 INI DIA FUNGSI UPDATE STATUS YANG KEMAREN ILANG 👇
+func UpdateWasteStatus(c *fiber.Ctx) error {
+	id := c.Params("id")
+	
+	var waste Waste
+	// Cari data berdasarkan ID
+	if err := DB.First(&waste, id).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Data sampah tidak ditemukan"})
+	}
 
-    if fotoURL != "" {
-        fmt.Println("📸 Mendownload gambar dari:", fotoURL)
-        
-        respImg, err := http.Get(fotoURL)
-        if err != nil {
-            fmt.Println("❌ Gagal download gambar dari MinIO:", err)
-            return
-        }
-        defer respImg.Body.Close()
+	// Update status jadi 'selesai'
+	waste.Status = "selesai"
+	DB.Save(&waste)
 
-        body := &bytes.Buffer{}
-        writer := multipart.NewWriter(body)
-
-        // 1. Data Biasa
-        _ = writer.WriteField("phone", nomorTujuan)
-        _ = writer.WriteField("caption", pesan)
-        _ = writer.WriteField("type", "image")
-
-        // 2. BAGIAN INI KITA OPREK MANUAL (Biar ada Content-Type)
-        // Kita bikin header manual biar server percaya ini beneran gambar
-        h := make(textproto.MIMEHeader)
-        h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, "image", "bukti_sampah.jpg"))
-        h.Set("Content-Type", "image/jpeg") // <--- INI "KTP" YANG DIA CARI!
-
-        part, err := writer.CreatePart(h)
-        if err != nil {
-            fmt.Println("❌ Gagal bikin part file:", err)
-            return
-        }
-
-        // Salin isi gambar
-        _, err = io.Copy(part, respImg.Body)
-        writer.Close()
-
-        // 3. Kirim
-        resp, err := http.Post("http://wa-gateway:3000/send/image", writer.FormDataContentType(), body)
-        if err != nil {
-            fmt.Println("❌ Gagal kirim ke WA Gateway:", err)
-            return
-        }
-        defer resp.Body.Close()
-        
-        respBody, _ := io.ReadAll(resp.Body)
-        if resp.StatusCode != 200 {
-            fmt.Printf("⚠️ WA Nolak (Status %d). Alasannya: %s\n", resp.StatusCode, string(respBody))
-        } else {
-            fmt.Println("✅ WA Gambar Sukses Terkirim!")
-        }
-
-    } else {
-        // Mode Teks Biasa
-        payload := map[string]interface{}{
-            "phone":   nomorTujuan,
-            "message": pesan,
-            "type":    "text",
-        }
-        jsonPayload, _ := json.Marshal(payload)
-        http.Post("http://wa-gateway:3000/send/message", "application/json", bytes.NewBuffer(jsonPayload))
-        fmt.Println("✅ WA Teks Sukses Terkirim!")
-    }
+	return c.JSON(fiber.Map{
+		"message": "Status berhasil diupdate jadi Selesai!",
+		"data":    waste,
+	})
 }
+
+// --- FUNGSI KIRIM WA ---
+func SendWhatsApp(nomorTujuan string, pesan string, fotoURL string) {
+	if !strings.HasSuffix(nomorTujuan, "@s.whatsapp.net") {
+		nomorTujuan = nomorTujuan + "@s.whatsapp.net"
+	}
+
+	if fotoURL != "" {
+		fmt.Println("📸 Mendownload gambar dari:", fotoURL)
+		
+		respImg, err := http.Get(fotoURL)
+		if err != nil {
+			fmt.Println("❌ Gagal download gambar:", err)
+			return
+		}
+		defer respImg.Body.Close()
+
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+
+		_ = writer.WriteField("phone", nomorTujuan)
+		_ = writer.WriteField("caption", pesan)
+		_ = writer.WriteField("type", "image")
+
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, "image", "bukti.jpg"))
+		h.Set("Content-Type", "image/jpeg") 
+
+		part, err := writer.CreatePart(h)
+		if err != nil {
+			return
+		}
+		io.Copy(part, respImg.Body)
+		writer.Close()
+
+		http.Post("http://wa-gateway:3000/send/image", writer.FormDataContentType(), body)
+		fmt.Println("✅ WA Gambar Terkirim!")
+
+	} else {
+		// Mode Teks
+		payload := map[string]interface{}{
+			"phone":   nomorTujuan,
+			"message": pesan,
+			"type":    "text",
+		}
+		jsonPayload, _ := json.Marshal(payload)
+		http.Post("http://wa-gateway:3000/send/message", "application/json", bytes.NewBuffer(jsonPayload))
+		fmt.Println("✅ WA Teks Terkirim!")
+	}
+}
+
 // --- MIDDLEWARE ---
 func AuthMiddleware(c *fiber.Ctx) error {
 	authHeader := c.Get("Authorization")
@@ -290,12 +282,16 @@ func AuthMiddleware(c *fiber.Ctx) error {
 		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
 	}
 	tokenString := strings.Replace(authHeader, "Bearer ", "", 1)
+	
+	// Parse Token
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		return []byte(JWTSecret), nil
 	})
+
 	if err != nil || !token.Valid {
 		return c.Status(401).JSON(fiber.Map{"error": "Token Invalid"})
 	}
+
 	claims := token.Claims.(jwt.MapClaims)
 	c.Locals("user_id", claims["user_id"])
 	c.Locals("role", claims["role"])
