@@ -11,3 +11,4 @@ COPY . .
 
 # Jalanin aplikasinya
 CMD ["go", "run", "main.go"]
+

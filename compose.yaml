@@ -45,12 +45,14 @@ services:
     environment:
       DB_HOST: db-master
       MINIO_ENDPOINT: minio-server:9000
+      # 👇 DITAMBAH: Biar link foto di database nembak ke domain storage lo
+      MINIO_PUBLIC_URL: https://storage.pjjrn.my.id
     env_file:
       - .env
     depends_on:
       - db-master
-      - minio-server  # ✅ Udah bener, manggil service di bawah
-    networks:         # ✅ Ditambahin (Tadi ilang)
+      - minio-server
+    networks:
       - maggot-net
 
   backend-2:
@@ -59,15 +61,16 @@ services:
     environment:
       DB_HOST: db-master
       MINIO_ENDPOINT: minio-server:9000
+      # 👇 DITAMBAH: Sama kayak di atas
+      MINIO_PUBLIC_URL: https://storage.pjjrn.my.id
     env_file:
       - .env
     depends_on:
       - db-master
-      - minio-server  # ✅ Diubah dari 'minio' jadi 'minio-server'
+      - minio-server
     networks:
       - maggot-net
 
-  # Penyeimbang Beban
   load-balancer:
     image: nginx:alpine
     container_name: load-balancer
@@ -85,17 +88,23 @@ services:
   # 3. FRONTEND
   # =======================
   frontend:
-    build: ./frontend
+    build:
+      context: /home/ghost/Documents/maggot-cycle-frontend
+      args:
+        # ✅ TETEP HARDCODE: Cara paling aman buat Vite
+        - VITE_API_BASE_URL=https://api.pjjrn.my.id
     container_name: maggot-frontend
     ports:
       - "8080:80"
     networks:
       - maggot-net
+    volumes:
+      - /home/ghost/Documents/maggot-cycle-frontend/nginx.conf:/etc/nginx/conf.d/default.conf:Z
 
   # =======================
   # 4. STORAGE (MINIO)
   # =======================
-  minio-server:       # ✅ NAMA SERVICE DIGANTI (Tadinya 'minio', ini penyebab KeyError)
+  minio-server:
     image: quay.io/minio/minio
     container_name: minio-server
     command: server /data --console-address ":9001"
@@ -113,7 +122,7 @@ services:
   # =======================
   # 5. WHATSAPP GATEWAY
   # =======================
-  wa-gateway:         # ✅ NAMA SERVICE DIGANTI (Biar konsisten sama container_name)
+  wa-gateway:
     image: aldinokemal2104/go-whatsapp-web-multidevice
     container_name: wa-gateway
     restart: always
@@ -130,6 +139,14 @@ networks:
 
 volumes:
   pg_master_data:
+    external: true
+    name: maggot-cycle-master_pg_master_data
   pg_slave_data:
+    external: true
+    name: maggot-cycle-master_pg_slave_data
   minio_data:
+    external: true
+    name: maggot-cycle-master_minio_data
   wa_data:
+    external: true
+    name: maggot-cycle-master_wa_data
